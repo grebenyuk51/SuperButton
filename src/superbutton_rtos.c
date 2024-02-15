@@ -96,7 +96,7 @@ void superbutton_init(super_button_button_t *buttons, uint8_t len, super_button_
     }
 
     xTaskCreate(process_button_events_after_interrupt, "Button Event Task",
-    4096, NULL, 1, NULL);
+    3072, NULL, 1, NULL);
     //configMINIMAL_STACK_SIZE, NULL, 1, NULL);
 }
 
@@ -167,7 +167,7 @@ void process_button_events_after_interrupt(void* pvParameters)
 
             ESP_LOGI("Super Button Internal Event", "button=%d, level=%d, current_tick_count=%lu", current_button_info->button, current_button_info->current_level, current_button_info->current_tick_count);
 
-            if(current_period > (pdMS_TO_TICKS(SUPER_BUTTON_DEBOUNCE_MS))
+            if(current_period > pdMS_TO_TICKS(SUPER_BUTTON_DEBOUNCE_MS))
             {
                 if(current_button_info->current_level != current_button_info->last_true_level)
                 {
@@ -176,17 +176,17 @@ void process_button_events_after_interrupt(void* pvParameters)
                     current_button_info->click_type = SUPER_BUTTON_BUTTON_EMPTY;
                 }
 
-                if((current_button_info->current_level == SUPPER_BUTTON_UP) && (current_button_info->last_true_level == SUPPER_BUTTON_DOWN))
+                if(current_button_info->current_level == SUPPER_BUTTON_UP && current_button_info->last_true_level == SUPPER_BUTTON_DOWN)
                 {
                     current_button_info->click_count++;
                 }
-                else if((current_button_info->current_level == SUPPER_BUTTON_UP) && (current_button_info->last_true_level == SUPPER_BUTTON_UNDEF))
+                else if(current_button_info->current_level == SUPPER_BUTTON_UP && current_button_info->last_true_level == SUPPER_BUTTON_UNDEF)
                 {
                     //this situation could be when we booted with button pressed. maybe should read pin at start
                     current_button_info->is_busy = 0;
                 }
 
-                if(current_period >= (pdMS_TO_TICKS(SUPER_BUTTON_MULTI_CLICK_GAP_MS) && current_period < (pdMS_TO_TICKS(SUPER_BUTTON_LONG_PRESS_START_GAP_MS))
+                if(current_period >= pdMS_TO_TICKS(SUPER_BUTTON_MULTI_CLICK_GAP_MS) && current_period < pdMS_TO_TICKS(SUPER_BUTTON_LONG_PRESS_START_GAP_MS))
                 {
                     if(current_button_info->click_count > 0)
                     {
@@ -200,9 +200,9 @@ void process_button_events_after_interrupt(void* pvParameters)
                         current_button_info->is_busy = 0;
                     }
                 }
-                else if(current_period >= (pdMS_TO_TICKS(SUPER_BUTTON_LONG_PRESS_START_GAP_MS))
+                else if(current_period >= pdMS_TO_TICKS(SUPER_BUTTON_LONG_PRESS_START_GAP_MS))
                 {
-                    if((current_button_info->current_level == SUPPER_BUTTON_DOWN) && (current_button_info->last_true_level == SUPPER_BUTTON_DOWN) &&  current_button_info->click_type == SUPER_BUTTON_BUTTON_EMPTY)
+                    if(current_button_info->current_level == SUPPER_BUTTON_DOWN && current_button_info->last_true_level == SUPPER_BUTTON_DOWN &&  current_button_info->click_type == SUPER_BUTTON_BUTTON_EMPTY)
                     {
                         //todo: boot with button down
                         current_button_info->click_type = SUPER_BUTTON_LONG_PRESS_START;
