@@ -17,6 +17,7 @@ typedef struct
     uint16_t click_count;
     super_button_click_type_t click_type;
     uint8_t is_busy;
+    void *user_data;
 } button_press_info_t;
 typedef struct
 {
@@ -57,7 +58,8 @@ void superbutton_init(super_button_button_t *buttons, uint8_t len, super_button_
             .current_tick_count = 0,
             .last_true_level_tick_count = 0,
             .click_type = 0,
-            .is_busy = 0
+            .is_busy = 0,
+            .user_data = buttons[i].user_data,
         };
         button_info[i] = a;
         button_args[i].button_info_index = i;
@@ -249,6 +251,7 @@ void send_event(button_press_info_t *args)
 {
     static super_button_click_event_args_t result;
     result.button.button_gpio_num = args->button;
+    result.button.user_data = args->user_data;
     result.click_count = args->click_count;
     result.click_type = args->click_type;
 

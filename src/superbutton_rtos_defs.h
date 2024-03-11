@@ -92,6 +92,7 @@ typedef enum
 typedef struct
 {
     gpio_num_t button_gpio_num;
+    void * user_data;
 } super_button_button_t;
 
 
