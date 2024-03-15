@@ -23,8 +23,8 @@ extern "C" {
 /* Header includes */
 #include "superbutton_rtos_defs.h"
 
-void superbutton_init(super_button_button_t buttons[], uint8_t len, super_button_pull_mode_t pull_mode, super_button_pull_direction_t pull_direction);
-
+void superbutton_init(super_button_button_t buttons[], uint8_t len, super_button_pull_mode_t pull_mode, super_button_pull_direction_t pull_direction, super_button_config_t config);
+super_button_config_t superbutton_create_default_config();
 
 #ifdef __cplusplus
 }

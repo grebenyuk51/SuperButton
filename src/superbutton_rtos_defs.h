@@ -24,10 +24,6 @@
 #include "freertos/queue.h"
 #include <driver/gpio.h>
 
-#define SUPER_BUTTON_DEBOUNCE_MS (TickType_t)(25)
-#define SUPER_BUTTON_MULTI_CLICK_GAP_MS (TickType_t)(200)
-#define SUPER_BUTTON_LONG_PRESS_START_GAP_MS (TickType_t)(400)
-
 /********************************************************/
 
 /*
@@ -68,13 +64,13 @@ Explanation: A single click is detected when the button is pressed and released
 
 typedef enum
 {
-    SUPER_BUTTON_BUTTON_EMPTY = 0x00,
-    SUPER_BUTTON_BUTTON_DOWN = 0x01,
-    SUPER_BUTTON_BUTTON_UP = 0x02,
-    SUPER_BUTTON_SINGLE_CLICK = 0x04,
-    SUPER_BUTTON_MULTI_CLICK = 0x08,
-    SUPER_BUTTON_LONG_CLICK = 0x10,
-    SUPER_BUTTON_LONG_PRESS_START = 0x20
+    SUPER_BUTTON_BUTTON_EMPTY = 0,
+    SUPER_BUTTON_BUTTON_DOWN = 1 << 0,
+    SUPER_BUTTON_BUTTON_UP = 1 << 1,
+    SUPER_BUTTON_SINGLE_CLICK = 1 << 2,
+    SUPER_BUTTON_MULTI_CLICK = 1 << 3,
+    SUPER_BUTTON_LONG_CLICK = 1 << 4,
+    SUPER_BUTTON_LONG_PRESS_START = 1 << 5
 } super_button_click_type_t;
 
 typedef enum
@@ -94,6 +90,13 @@ typedef struct
     gpio_num_t button_gpio_num;
     void * user_data;
 } super_button_button_t;
+
+typedef struct
+{
+    TickType_t debounce_ms;
+    TickType_t multi_click_gap_ms;
+    TickType_t long_press_start_gap_ms;
+} super_button_config_t;
 
 
 typedef struct

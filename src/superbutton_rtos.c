@@ -23,10 +23,12 @@ typedef struct
 typedef struct
 {
     uint8_t button_info_index;
+    int raw_level;
     TickType_t tick_count;
 } button_args_t;
 
 static super_button_pull_direction_t global_pull_direction = SUPER_BUTTON_PULL_DOWN;
+static super_button_config_t global_config;
 static button_press_info_t *button_info;
 static uint8_t button_info_len;
 static button_args_t *button_args;
@@ -36,14 +38,15 @@ static void button_isr_handler(void* arg);
 void process_button_events_after_interrupt(void* pvParameters);
 void send_event(button_press_info_t *args);
 
-void superbutton_init(super_button_button_t *buttons, uint8_t len, super_button_pull_mode_t pull_mode, super_button_pull_direction_t pull_direction)
+void superbutton_init(super_button_button_t *buttons, uint8_t len, super_button_pull_mode_t pull_mode, super_button_pull_direction_t pull_direction, super_button_config_t config)
 {
+    global_config = config;
     buttonQueue = xQueueCreate(5 * len, sizeof(button_args_t));
     //vTaskSuspendAll();
     button_info_len = len;
-    button_info = (button_press_info_t *)calloc(sizeof(button_press_info_t) * button_info_len);
+    button_info = (button_press_info_t *)calloc(sizeof(button_press_info_t) * button_info_len, button_info_len);
     //memset(button_info, 0, sizeof(button_press_info_t) * button_info_len);
-    button_args = (button_args_t *)calloc(sizeof(button_args_t) * len);
+    button_args = (button_args_t *)calloc(sizeof(button_args_t) * len, len);
     //memset(button_args, 0, sizeof(button_args_t) * len);
     //xTaskResumeAll();
 
@@ -57,8 +60,6 @@ void superbutton_init(super_button_button_t *buttons, uint8_t len, super_button_
         button_press_info_t a =
         {
             .button = gpio,
-            .current_level = SUPPER_BUTTON_UNDEF,
-            .last_true_level = SUPPER_BUTTON_UNDEF,
             .current_tick_count = 0,
             .last_true_level_tick_count = 0,
             .click_type = 0,
@@ -67,6 +68,16 @@ void superbutton_init(super_button_button_t *buttons, uint8_t len, super_button_
         };
         button_info[i] = a;
         button_args[i].button_info_index = i;
+        if(pull_direction == SUPER_BUTTON_PULL_UP)
+        {
+            a.current_level = SUPPER_BUTTON_UP;
+            a.last_true_level = SUPPER_BUTTON_UP;
+        }
+        else
+        {
+            a.current_level = SUPPER_BUTTON_DOWN;
+            a.last_true_level = SUPPER_BUTTON_DOWN;
+        }
     }
     gpio_config_t io_conf;
     io_conf.intr_type = GPIO_INTR_ANYEDGE;
@@ -92,11 +103,11 @@ void superbutton_init(super_button_button_t *buttons, uint8_t len, super_button_
         }
     }
     global_pull_direction = pull_direction;
-
+ 
     gpio_config(&io_conf);
 
     gpio_install_isr_service(0);
-    for (uint8_t i = 0; i < len; i++)
+    for (int i = 0; i < len; i++)
     {
         gpio_isr_handler_add(buttons[i].button_gpio_num, button_isr_handler, (void *)i);
     }
@@ -111,10 +122,11 @@ static void IRAM_ATTR button_isr_handler(void* arg)
     static button_args_t args;
     static BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     static int level;
-    static uint8_t b_info_index;
+    static int b_info_index;
 
-    b_info_index = (uint8_t)arg;    
+    b_info_index = (int)arg;    
     args.button_info_index = b_info_index;
+    args.raw_level = gpio_get_level(button_info[b_info_index].button);  //bad choice. bad buttons could get false state readings (down..up[read]..down.........)
     args.tick_count = xTaskGetTickCountFromISR();
     
     xQueueSendFromISR(buttonQueue, &args, &xHigherPriorityTaskWoken);
@@ -177,7 +189,7 @@ void process_button_events_after_interrupt(void* pvParameters)
 
             ESP_LOGI("Super Button Internal Event", "button=%d, level=%d, current_tick_count=%lu", current_button_info->button, current_button_info->current_level, current_button_info->current_tick_count);
 
-            if(current_period > pdMS_TO_TICKS(SUPER_BUTTON_DEBOUNCE_MS))
+            if(current_period > pdMS_TO_TICKS(global_config.debounce_ms))
             {
                 if(current_button_info->current_level != current_button_info->last_true_level)
                 {
@@ -196,7 +208,7 @@ void process_button_events_after_interrupt(void* pvParameters)
                     current_button_info->is_busy = 0;
                 }
 
-                if(current_period >= pdMS_TO_TICKS(SUPER_BUTTON_MULTI_CLICK_GAP_MS) && current_period < pdMS_TO_TICKS(SUPER_BUTTON_LONG_PRESS_START_GAP_MS))
+                if(current_period >= pdMS_TO_TICKS(global_config.multi_click_gap_ms) && current_period < pdMS_TO_TICKS(global_config.long_press_start_gap_ms))
                 {
                     if(current_button_info->click_count > 0)
                     {
@@ -210,7 +222,7 @@ void process_button_events_after_interrupt(void* pvParameters)
                         current_button_info->is_busy = 0;
                     }
                 }
-                else if(current_period >= pdMS_TO_TICKS(SUPER_BUTTON_LONG_PRESS_START_GAP_MS))
+                else if(current_period >= pdMS_TO_TICKS(global_config.long_press_start_gap_ms))
                 {
                     if(current_button_info->current_level == SUPPER_BUTTON_DOWN && current_button_info->last_true_level == SUPPER_BUTTON_DOWN &&  current_button_info->click_type == SUPER_BUTTON_BUTTON_EMPTY)
                     {
@@ -237,6 +249,7 @@ void process_button_events_after_interrupt(void* pvParameters)
                     current_button_info->last_true_level = current_button_info->current_level;
                     current_button_info->last_true_level_tick_count = current_button_info->current_tick_count;
                 }
+                current_button_info->current_tick_count = portMAX_DELAY;
             }
             else
             {
@@ -247,7 +260,7 @@ void process_button_events_after_interrupt(void* pvParameters)
         }
         if(isbusy)
         {
-            queue_receive_delay = pdMS_TO_TICKS(200);
+            queue_receive_delay = pdMS_TO_TICKS(global_config.long_press_start_gap_ms - 10);
         }
         else
         {
@@ -265,4 +278,15 @@ void send_event(button_press_info_t *args)
     result.click_type = args->click_type;
 
     xQueueSend(super_button_queue, &result, 0);
+}
+
+super_button_config_t superbutton_create_default_config()
+{
+    super_button_config_t c =
+    {
+        .debounce_ms = 25,
+        .multi_click_gap_ms = 200,
+        .long_press_start_gap_ms = 800
+    };
+    return c;
 }
