@@ -4,6 +4,7 @@
 #include "freertos/queue.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "string.h"
 
 static QueueHandle_t buttonQueue;
 
@@ -22,8 +23,8 @@ typedef struct
 typedef struct
 {
     uint8_t button_info_index;
+    TickType_t tick_count;
 } button_args_t;
-
 
 static super_button_pull_direction_t global_pull_direction = SUPER_BUTTON_PULL_DOWN;
 static button_press_info_t *button_info;
@@ -38,10 +39,13 @@ void send_event(button_press_info_t *args);
 void superbutton_init(super_button_button_t *buttons, uint8_t len, super_button_pull_mode_t pull_mode, super_button_pull_direction_t pull_direction)
 {
     buttonQueue = xQueueCreate(5 * len, sizeof(button_args_t));
+    //vTaskSuspendAll();
     button_info_len = len;
-    button_info = (button_press_info_t *)pvPortMalloc(sizeof(button_press_info_t) * button_info_len);
-    button_args = (button_args_t *)pvPortMalloc(sizeof(button_args_t) * len);
-    
+    button_info = (button_press_info_t *)calloc(sizeof(button_press_info_t) * button_info_len);
+    //memset(button_info, 0, sizeof(button_press_info_t) * button_info_len);
+    button_args = (button_args_t *)calloc(sizeof(button_args_t) * len);
+    //memset(button_args, 0, sizeof(button_args_t) * len);
+    //xTaskResumeAll();
 
     gpio_num_t gpio = 0;
     uint64_t pin_bit_mask = 0;
@@ -105,23 +109,14 @@ void superbutton_init(super_button_button_t *buttons, uint8_t len, super_button_
 static void IRAM_ATTR button_isr_handler(void* arg) 
 {
     static button_args_t args;
-    static button_press_info_t *b_args;
     static BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     static int level;
+    static uint8_t b_info_index;
+
+    b_info_index = (uint8_t)arg;    
+    args.button_info_index = b_info_index;
+    args.tick_count = xTaskGetTickCountFromISR();
     
-    args.button_info_index = (uint8_t)arg;
-	b_args = &button_info[args.button_info_index];
-    level = gpio_get_level(b_args->button);
-    if(global_pull_direction == SUPER_BUTTON_PULL_DOWN)
-    {
-        b_args->current_level = level == 0 ? SUPPER_BUTTON_UP : SUPPER_BUTTON_DOWN;
-    }
-    else
-    {
-        b_args->current_level = level == 0 ? SUPPER_BUTTON_DOWN : SUPPER_BUTTON_UP;
-    }
-	b_args->current_tick_count = xTaskGetTickCountFromISR();
-    b_args->is_busy = 1;
     xQueueSendFromISR(buttonQueue, &args, &xHigherPriorityTaskWoken);
 
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
@@ -134,7 +129,7 @@ static void IRAM_ATTR button_isr_handler(void* arg)
 void process_button_events_after_interrupt(void* pvParameters) 
 {
     QueueHandle_t current_queue = buttonQueue;
-    TickType_t current_tick = 0;
+    TickType_t prev_event_tick = 0;
     static TickType_t queue_receive_delay = portMAX_DELAY;
     static uint8_t isbusy = 0;
     
@@ -146,25 +141,38 @@ void process_button_events_after_interrupt(void* pvParameters)
         button_args_t args;
         BaseType_t err = xQueueReceive(current_queue, &args, queue_receive_delay);
 
+        if(err == pdPASS)
+        {
+            if(global_pull_direction == SUPER_BUTTON_PULL_DOWN)
+            {
+                button_info[args.button_info_index].current_level = args.raw_level == 0 ? SUPPER_BUTTON_UP : SUPPER_BUTTON_DOWN;
+            }
+            else
+            {
+                button_info[args.button_info_index].current_level = args.raw_level == 0 ? SUPPER_BUTTON_DOWN : SUPPER_BUTTON_UP;
+            }
+            button_info[args.button_info_index].current_tick_count = args.tick_count;
+            button_info[args.button_info_index].is_busy = 1;
+        }
+
         isbusy = 0;
         for(int i = args.button_info_index; i < button_info_len + args.button_info_index; i++)
         {
             current_button_info = &button_info[i % button_info_len];
+
             if(current_button_info->is_busy == 0)
             {
                 continue;
             }
+
             isbusy |= current_button_info->is_busy;
-            if(err == errQUEUE_EMPTY)
+
+            if(current_button_info->current_tick_count == portMAX_DELAY)
             {
-                current_tick = xTaskGetTickCount();
-            }
-            else
-            {
-                current_tick = current_button_info->current_tick_count;
+                current_button_info->current_tick_count = xTaskGetTickCount();
             }
 
-            TickType_t current_period = current_tick - current_button_info->last_true_level_tick_count;
+            TickType_t current_period = current_button_info->current_tick_count - current_button_info->last_true_level_tick_count;
             //todo: current_period != click_period. maybe should measure down period as well 
 
             ESP_LOGI("Super Button Internal Event", "button=%d, level=%d, current_tick_count=%lu", current_button_info->button, current_button_info->current_level, current_button_info->current_tick_count);
@@ -232,6 +240,7 @@ void process_button_events_after_interrupt(void* pvParameters)
             }
             else
             {
+                current_button_info->current_tick_count = portMAX_DELAY;
                 vPortYield();
                 continue;
             }
