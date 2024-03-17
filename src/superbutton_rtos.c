@@ -142,9 +142,10 @@ void process_button_events_after_interrupt(void* pvParameters)
 {
     QueueHandle_t current_queue = buttonQueue;
     TickType_t prev_event_tick = 0;
+    static TickType_t current_period = 0;
+    static TickType_t current_tick = 0;
     static TickType_t queue_receive_delay = portMAX_DELAY;
-    static uint8_t isbusy = 0;
-    
+    static uint8_t isbusy = 0;    
 
     button_press_info_t *current_button_info;
 
@@ -177,54 +178,42 @@ void process_button_events_after_interrupt(void* pvParameters)
                 continue;
             }
 
-            isbusy |= current_button_info->is_busy;
-
-            if(current_button_info->current_tick_count == portMAX_DELAY)
+            if(err == errQUEUE_EMPTY)
             {
-                current_button_info->current_tick_count = xTaskGetTickCount();
+                current_tick = xTaskGetTickCount();
+            }
+            else
+            {
+                current_tick = current_button_info->current_tick_count;
             }
 
-            TickType_t current_period = current_button_info->current_tick_count - current_button_info->last_true_level_tick_count;
+            current_period = current_tick - current_button_info->last_true_level_tick_count;
             //todo: current_period != click_period. maybe should measure down period as well 
 
-            ESP_LOGI("Super Button Internal Event", "button=%d, level=%d, current_tick_count=%lu", current_button_info->button, current_button_info->current_level, current_button_info->current_tick_count);
+            ESP_LOGI("Super Button Internal Event", "button=%d, level=%d, current_tick_count=%lu", current_button_info->button, current_button_info->current_level, current_tick);
 
-            if(current_period > pdMS_TO_TICKS(global_config.debounce_ms))
+            if(current_period < pdMS_TO_TICKS(global_config.debounce_ms))
+            {
+                isbusy |= current_button_info->is_busy;
+                vPortYield();
+                continue;
+            }
+            else
             {
                 if(current_button_info->current_level != current_button_info->last_true_level)
                 {
                     current_button_info->click_type = current_button_info->current_level == SUPPER_BUTTON_UP ? SUPER_BUTTON_BUTTON_UP : SUPER_BUTTON_BUTTON_DOWN;
                     send_event(current_button_info);
-                    current_button_info->click_type = SUPER_BUTTON_BUTTON_EMPTY;
                 }
 
                 if(current_button_info->current_level == SUPPER_BUTTON_UP && current_button_info->last_true_level == SUPPER_BUTTON_DOWN)
                 {
                     current_button_info->click_count++;
                 }
-                else if(current_button_info->current_level == SUPPER_BUTTON_UP && current_button_info->last_true_level == SUPPER_BUTTON_UNDEF)
-                {
-                    //this situation could be when we booted with button pressed. maybe should read pin at start
-                    current_button_info->is_busy = 0;
-                }
 
-                if(current_period >= pdMS_TO_TICKS(global_config.multi_click_gap_ms) && current_period < pdMS_TO_TICKS(global_config.long_press_start_gap_ms))
+                if(current_period >= pdMS_TO_TICKS(global_config.long_press_start_gap_ms))
                 {
-                    if(current_button_info->click_count > 0)
-                    {
-                        current_button_info->click_type = current_button_info->click_count == 1 ? SUPER_BUTTON_SINGLE_CLICK : SUPER_BUTTON_MULTI_CLICK;
-                        send_event(current_button_info);
-                        current_button_info->click_count = 0;
-                        current_button_info->click_type = SUPER_BUTTON_BUTTON_EMPTY;
-                    }
-                    if(current_button_info->current_level == SUPPER_BUTTON_UP)  //if button down --> long_press
-                    {
-                        current_button_info->is_busy = 0;
-                    }
-                }
-                else if(current_period >= pdMS_TO_TICKS(global_config.long_press_start_gap_ms))
-                {
-                    if(current_button_info->current_level == SUPPER_BUTTON_DOWN && current_button_info->last_true_level == SUPPER_BUTTON_DOWN &&  current_button_info->click_type == SUPER_BUTTON_BUTTON_EMPTY)
+                    if(current_button_info->current_level == SUPPER_BUTTON_DOWN && current_button_info->last_true_level == SUPPER_BUTTON_DOWN)
                     {
                         //todo: boot with button down
                         current_button_info->click_type = SUPER_BUTTON_LONG_PRESS_START;
@@ -237,30 +226,40 @@ void process_button_events_after_interrupt(void* pvParameters)
                         current_button_info->click_type = SUPER_BUTTON_LONG_CLICK;
                         send_event(current_button_info);
                         current_button_info->click_count = 0;
-                        current_button_info->click_type = SUPER_BUTTON_BUTTON_EMPTY;
+                        current_button_info->is_busy = 0;
+                    }
+                }
+                else if(current_period >= pdMS_TO_TICKS(global_config.multi_click_gap_ms))
+                {
+                    if(current_button_info->click_count > 0)
+                    {
+                        current_button_info->click_type = current_button_info->click_count == 1 ? SUPER_BUTTON_SINGLE_CLICK : SUPER_BUTTON_MULTI_CLICK;
+                        send_event(current_button_info);
+                        current_button_info->click_count = 0;
+                    }
+                    if(current_button_info->current_level == SUPPER_BUTTON_UP)  //if button down --> long_press
+                    {
                         current_button_info->is_busy = 0;
                     }
                 }
 
-
+                // if(current_button_info->current_level == SUPPER_BUTTON_UP && current_button_info->last_true_level == SUPPER_BUTTON_UNDEF)
+                // {
+                //     //this situation could be when we booted with button pressed. maybe should read pin at start
+                //     current_button_info->is_busy = 0;
+                // }
 
                 if(current_button_info->current_level != current_button_info->last_true_level)
                 {
                     current_button_info->last_true_level = current_button_info->current_level;
                     current_button_info->last_true_level_tick_count = current_button_info->current_tick_count;
                 }
-                current_button_info->current_tick_count = portMAX_DELAY;
             }
-            else
-            {
-                current_button_info->current_tick_count = portMAX_DELAY;
-                vPortYield();
-                continue;
-            }
+            isbusy |= current_button_info->is_busy;
         }
         if(isbusy)
         {
-            queue_receive_delay = pdMS_TO_TICKS(global_config.long_press_start_gap_ms - 10);
+            queue_receive_delay = pdMS_TO_TICKS(global_config.multi_click_gap_ms);
         }
         else
         {
@@ -276,7 +275,6 @@ void send_event(button_press_info_t *args)
     result.button.user_data = args->user_data;
     result.click_count = args->click_count;
     result.click_type = args->click_type;
-
     xQueueSend(super_button_queue, &result, 0);
 }
 
@@ -285,7 +283,7 @@ super_button_config_t superbutton_create_default_config()
     super_button_config_t c =
     {
         .debounce_ms = 25,
-        .multi_click_gap_ms = 200,
+        .multi_click_gap_ms = 180,
         .long_press_start_gap_ms = 800
     };
     return c;
