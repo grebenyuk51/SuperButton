@@ -7,6 +7,7 @@
 #include "string.h"
 
 static QueueHandle_t buttonQueue;
+static QueueHandle_t eventButtonQueue;
 
 typedef struct
 {
@@ -38,9 +39,10 @@ static void button_isr_handler(void* arg);
 void process_button_events_after_interrupt(void* pvParameters);
 void send_event(button_press_info_t *args);
 
-void superbutton_init(super_button_button_t *buttons, uint8_t len, super_button_pull_mode_t pull_mode, super_button_pull_direction_t pull_direction, super_button_config_t config)
+void superbutton_init(super_button_button_t *buttons, uint8_t len, super_button_pull_mode_t pull_mode, super_button_pull_direction_t pull_direction, QueueHandle_t queue, super_button_config_t config)
 {
     global_config = config;
+    eventButtonQueue = queue;
     buttonQueue = xQueueCreate(5 * len, sizeof(button_args_t));
     //vTaskSuspendAll();
     button_info_len = len;
@@ -275,7 +277,7 @@ void send_event(button_press_info_t *args)
     result.button.user_data = args->user_data;
     result.click_count = args->click_count;
     result.click_type = args->click_type;
-    xQueueSend(super_button_queue, &result, 0);
+    xQueueSend(eventButtonQueue, &result, 0);
 }
 
 super_button_config_t superbutton_create_default_config()
