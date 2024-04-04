@@ -114,6 +114,9 @@ typedef enum
 
 void superbutton_init(super_button_button_t buttons[], uint8_t len, super_button_pull_mode_t pull_mode, super_button_pull_direction_t pull_direction, QueueHandle_t queue, super_button_config_t config);
 super_button_config_t superbutton_create_default_config();
+button_state_t get_button_state(super_button_button_t button);
+button_state_t get_button_state_by_gpio(gpio_num_t gpio);
+button_state_t map_button_state_vs_raw_level(int raw_level);
 
 #ifdef __cplusplus
 }
